@@ -1,0 +1,21 @@
+[project]
+name = "btcusdt-market-data-collector"
+version = "0.1.0"
+description = "Real-time BTCUSDT Binance market-data collector with Parquet storage, local order-book reconstruction, and standalone live viewer."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Denis Novgorodov" }
+]
+dependencies = [
+  "aiohttp>=3.9",
+  "websockets>=12.0",
+  "pyarrow>=15.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/YOUR_USERNAME/btcusdt-market-data-collector"
+Repository = "https://github.com/YOUR_USERNAME/btcusdt-market-data-collector"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

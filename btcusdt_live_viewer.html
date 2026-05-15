@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BTCUSDT Live Viewer</title>
+  <script type="text/javascript" src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --muted: #8b93a7;
+      --text: #e6e8ef;
+      --green: #22c55e;
+      --red: #ef4444;
+      --border: #2a3040;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .wrap {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 16px;
+      min-height: 100vh;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .head {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .title {
+      font-weight: 700;
+      font-size: 16px;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .metrics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .badge {
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .ok { color: var(--green); }
+    .bad { color: var(--red); }
+    #chart { width: 100%; height: 72vh; }
+    .side {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 16px;
+    }
+    .box {
+      padding: 12px 14px;
+    }
+    .kv {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      row-gap: 8px;
+      column-gap: 8px;
+      font-size: 14px;
+    }
+    .kv .label { color: var(--muted); }
+    .book {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .book table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .book th, .book td {
+      text-align: right;
+      padding: 4px 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-variant-numeric: tabular-nums;
+    }
+    .book th:first-child, .book td:first-child { text-align: left; }
+    .asks th, .asks td.price { color: #fca5a5; }
+    .bids th, .bids td.price { color: #86efac; }
+    .footer {
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    @media (max-width: 1100px) {
+      .wrap { grid-template-columns: 1fr; }
+      #chart { height: 58vh; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <div class="head">
+        <div>
+          <div class="title">BTCUSDT Live Viewer</div>
+          <div class="sub">Standalone HTML. Opens directly from disk. Connects to Binance market-data streams.</div>
+        </div>
+        <div class="metrics">
+          <span id="conn" class="badge">connecting…</span>
+          <span id="lastTradeTime" class="badge">last trade: —</span>
+        </div>
+      </div>
+      <div id="chart"></div>
+      <div class="footer">
+        Streams: <code>btcusdt@trade</code>, <code>btcusdt@bookTicker</code>, <code>btcusdt@depth20@100ms</code>. Candles are built locally from raw trades into 1-second bars.
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="panel box">
+        <div class="title" style="margin-bottom: 10px;">Market snapshot</div>
+        <div class="kv">
+          <div class="label">Last price</div><div id="lastPrice">—</div>
+          <div class="label">Best bid</div><div id="bestBid">—</div>
+          <div class="label">Best ask</div><div id="bestAsk">—</div>
+          <div class="label">Spread</div><div id="spread">—</div>
+          <div class="label">1s volume</div><div id="barVolume">—</div>
+        </div>
+      </div>
+
+      <div class="panel box">
+        <div class="title" style="margin-bottom: 10px;">Recent trades</div>
+        <div id="recentTrades" style="font-size: 12px; display: grid; row-gap: 6px;"></div>
+      </div>
+
+      <div class="panel">
+        <div class="head">
+          <div>
+            <div class="title">Top 10 order book</div>
+            <div class="sub">From partial depth stream</div>
+          </div>
+        </div>
+        <div class="box book">
+          <div class="asks">
+            <table>
+              <thead><tr><th>Ask px</th><th>Qty</th></tr></thead>
+              <tbody id="asksBody"></tbody>
+            </table>
+          </div>
+          <div class="bids">
+            <table>
+              <thead><tr><th>Bid px</th><th>Qty</th></tr></thead>
+              <tbody id="bidsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const STREAM_URL = 'wss://stream.binance.com:9443/stream?streams=btcusdt@trade/btcusdt@bookTicker/btcusdt@depth20@100ms&timeUnit=MICROSECOND';
+    const MAX_RECENT_TRADES = 14;
+    const recentTrades = [];
+
+    const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+      layout: {
+        background: { color: '#171a21' },
+        textColor: '#cbd5e1',
+      },
+      grid: {
+        vertLines: { color: 'rgba(255,255,255,0.05)' },
+        horzLines: { color: 'rgba(255,255,255,0.05)' },
+      },
+      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+      rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
+      timeScale: {
+        borderColor: 'rgba(255,255,255,0.1)',
+        timeVisible: true,
+        secondsVisible: true,
+      },
+      width: document.getElementById('chart').clientWidth,
+      height: document.getElementById('chart').clientHeight,
+    });
+
+    const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+      upColor: '#22c55e',
+      downColor: '#ef4444',
+      wickUpColor: '#22c55e',
+      wickDownColor: '#ef4444',
+      borderVisible: false,
+    });
+
+    const volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
+      priceFormat: { type: 'volume' },
+      priceScaleId: '',
+    });
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: { top: 0.82, bottom: 0 },
+    });
+
+    const els = {
+      conn: document.getElementById('conn'),
+      lastTradeTime: document.getElementById('lastTradeTime'),
+      lastPrice: document.getElementById('lastPrice'),
+      bestBid: document.getElementById('bestBid'),
+      bestAsk: document.getElementById('bestAsk'),
+      spread: document.getElementById('spread'),
+      barVolume: document.getElementById('barVolume'),
+      recentTrades: document.getElementById('recentTrades'),
+      asksBody: document.getElementById('asksBody'),
+      bidsBody: document.getElementById('bidsBody'),
+    };
+
+    let currentBar = null;
+    let currentBarVolume = 0;
+
+    function fmtPrice(v) {
+      return Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function fmtQty(v) {
+      return Number(v).toLocaleString(undefined, { minimumFractionDigits: 5, maximumFractionDigits: 5 });
+    }
+
+    function fmtTimeUs(us) {
+      const d = new Date(Number(us) / 1000);
+      return d.toLocaleTimeString();
+    }
+
+    function updateConnection(state, ok) {
+      els.conn.textContent = state;
+      els.conn.className = 'badge ' + (ok ? 'ok' : 'bad');
+    }
+
+    function pushTradeRow(price, qty, isBuyerMaker, tradeTimeUs) {
+      recentTrades.unshift({ price, qty, isBuyerMaker, tradeTimeUs });
+      if (recentTrades.length > MAX_RECENT_TRADES) recentTrades.pop();
+      els.recentTrades.innerHTML = recentTrades.map(t => {
+        const cls = t.isBuyerMaker ? 'bad' : 'ok';
+        return `<div style="display:flex;justify-content:space-between;gap:8px;">
+          <span class="${cls}">${fmtPrice(t.price)}</span>
+          <span>${fmtQty(t.qty)}</span>
+          <span style="color:#8b93a7">${fmtTimeUs(t.tradeTimeUs)}</span>
+        </div>`;
+      }).join('');
+    }
+
+    function updateBook(bids, asks) {
+      const topAsks = asks.slice(0, 10);
+      const topBids = bids.slice(0, 10);
+      els.asksBody.innerHTML = topAsks.map(([p, q]) => `<tr><td class="price">${fmtPrice(p)}</td><td>${fmtQty(q)}</td></tr>`).join('');
+      els.bidsBody.innerHTML = topBids.map(([p, q]) => `<tr><td class="price">${fmtPrice(p)}</td><td>${fmtQty(q)}</td></tr>`).join('');
+    }
+
+    function onTrade(data) {
+      const price = Number(data.p);
+      const qty = Number(data.q);
+      const tradeTimeUs = Number(data.T);
+      const sec = Math.floor(tradeTimeUs / 1_000_000);
+
+      els.lastPrice.textContent = fmtPrice(price);
+      els.lastTradeTime.textContent = `last trade: ${new Date(sec * 1000).toLocaleTimeString()}`;
+      pushTradeRow(price, qty, Boolean(data.m), tradeTimeUs);
+
+      if (!currentBar || currentBar.time !== sec) {
+        currentBar = { time: sec, open: price, high: price, low: price, close: price };
+        currentBarVolume = qty;
+      } else {
+        currentBar.high = Math.max(currentBar.high, price);
+        currentBar.low = Math.min(currentBar.low, price);
+        currentBar.close = price;
+        currentBarVolume += qty;
+      }
+
+      candleSeries.update(currentBar);
+      volumeSeries.update({
+        time: sec,
+        value: currentBarVolume,
+        color: currentBar.close >= currentBar.open ? '#22c55e88' : '#ef444488',
+      });
+      els.barVolume.textContent = fmtQty(currentBarVolume);
+    }
+
+    function onBookTicker(data) {
+      const bid = Number(data.b);
+      const ask = Number(data.a);
+      const spread = ask - bid;
+      els.bestBid.textContent = fmtPrice(bid);
+      els.bestAsk.textContent = fmtPrice(ask);
+      els.spread.textContent = spread.toFixed(2);
+    }
+
+    function onPartialDepth(data) {
+      updateBook(data.bids || [], data.asks || []);
+    }
+
+    function connect() {
+      const ws = new WebSocket(STREAM_URL);
+
+      ws.onopen = () => updateConnection('connected', true);
+      ws.onclose = () => {
+        updateConnection('disconnected; retrying…', false);
+        setTimeout(connect, 1500);
+      };
+      ws.onerror = () => updateConnection('socket error', false);
+
+      ws.onmessage = (event) => {
+        const payload = JSON.parse(event.data);
+        const stream = payload.stream;
+        const data = payload.data;
+        if (!stream || !data) return;
+
+        if (stream.endsWith('@trade')) {
+          onTrade(data);
+          return;
+        }
+        if (stream.endsWith('@bookTicker')) {
+          onBookTicker(data);
+          return;
+        }
+        if (stream.includes('@depth20@100ms')) {
+          onPartialDepth(data);
+        }
+      };
+    }
+
+    window.addEventListener('resize', () => {
+      chart.applyOptions({ width: document.getElementById('chart').clientWidth, height: document.getElementById('chart').clientHeight });
+    });
+
+    connect();
+  </script>
+</body>
+</html>
